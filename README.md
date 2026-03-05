@@ -6,7 +6,7 @@
 
 [![Download](https://img.shields.io/badge/T%C3%A9l%C3%A9charger-v1.0.0-blue?style=for-the-badge&logo=windows)](https://github.com/BlaMacfly/Pushly/releases/tag/v1.0.0)
 
-Pushly est un logiciel C++ Win32 extrêmement léger conçu pour optimiser l'expérience de jeu (notamment sur World of Warcraft) en automatisant la frappe séquentielle d'une touche avec une protection d'humanisation.
+Pushly est un logiciel C++ Win32 extrêmement léger conçu pour optimiser l'expérience de jeu (notamment sur World of Warcraft) en automatisant la frappe séquentielle d'une touche avec une protection d'humanisation. Développé par **BlaMacfly**.
 
 ## Fonctionnalités Principales
 
