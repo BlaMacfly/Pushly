@@ -1,0 +1,8 @@
+/Pushly.exe
+/config.ini
+/build_out.txt
+/build_out8.txt
+/build.log
+/path.txt
+*.obj
+*.res
