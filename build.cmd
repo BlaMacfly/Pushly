@@ -11,6 +11,6 @@ echo --- RUNNING RC.EXE ---
 rc.exe resource.rc
 
 echo --- RUNNING CL.EXE ---
-cl.exe /EHsc /O2 /MD main.cpp resource.res user32.lib gdi32.lib comctl32.lib /link /OUT:Pushly.exe /SUBSYSTEM:WINDOWS
+cl.exe /EHsc /O2 /MD main.cpp resource.res user32.lib gdi32.lib comctl32.lib winmm.lib /link /OUT:Pushly.exe /SUBSYSTEM:WINDOWS
 
 set "PATH=%PATH_BACKUP%"
