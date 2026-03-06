@@ -8,10 +8,13 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "winmm.lib")
 // clang-format on
+#include <Uxtheme.h>
 #include <cmath>
 #include <mmsystem.h>
 #include <random>
 #include <string>
+
+#pragma comment(lib, "uxtheme.lib")
 #include <thread>
 #include <vector>
 // clang-format on
@@ -465,6 +468,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     hHotKeyStart =
         CreateWindow(HOTKEY_CLASS, "", WS_VISIBLE | WS_CHILD | WS_BORDER, 195,
                      y, 115, 25, hwnd, NULL, NULL, NULL);
+    SetWindowTheme(hHotKeyStart, L" ",
+                   L" "); // Disable visual styles to allow dark background
     SendMessage(hHotKeyStart, HKM_SETHOTKEY, MAKEWORD(startVK, startMods), 0);
 
     y += 45;
@@ -473,6 +478,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     hHotKeyStop =
         CreateWindow(HOTKEY_CLASS, "", WS_VISIBLE | WS_CHILD | WS_BORDER, 195,
                      y, 115, 25, hwnd, NULL, NULL, NULL);
+    SetWindowTheme(hHotKeyStop, L" ", L" "); // Disable visual styles
     SendMessage(hHotKeyStop, HKM_SETHOTKEY, MAKEWORD(stopVK, stopMods), 0);
 
     y += 45;
