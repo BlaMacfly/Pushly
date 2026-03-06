@@ -244,9 +244,6 @@ void ApplySettings() {
     RegisterHotKey(hMainWindow, 2, GetWin32Modifiers(stopMods), stopVK);
 
   SaveConfig();
-
-  MessageBox(hMainWindow, "Parametres et Raccourcis appliques avec succes !",
-             "Succes", MB_OK | MB_ICONINFORMATION);
 }
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
@@ -272,7 +269,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
   HWND hwnd = CreateWindowEx(
       0, CLASS_NAME, "Pushly - Key Spammer",
       WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT,
-      CW_USEDEFAULT, 370, 480, NULL, NULL, hInstance, NULL);
+      CW_USEDEFAULT, 370, 435, NULL, NULL, hInstance, NULL);
 
   if (hwnd == NULL)
     return 0;
@@ -345,11 +342,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     SendMessage(hHotKeyStop, HKM_SETHOTKEY, MAKEWORD(stopVK, stopMods), 0);
 
     y += 45;
-    hBtnApply = CreateWindow("BUTTON", "Appliquer les Parametres",
-                             WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, 20, y, 310,
-                             38, hwnd, (HMENU)100, NULL, NULL);
-
-    y += 48;
     hBtnStatus = CreateWindow("BUTTON", "STATUT: EN ATTENTE",
                               WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, 20, y, 310,
                               38, hwnd, NULL, NULL, NULL);
@@ -390,6 +382,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
           return TRUE;
         },
         (LPARAM)hFont);
+
+    // Start auto-save timer (fires every 1 second)
+    SetTimer(hwnd, 1, 1000, NULL);
 
     return 0;
   }
@@ -472,13 +467,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
   }
 
   case WM_COMMAND: {
-    if (LOWORD(wParam) == 100) { // Apply button clicked
-      // Read mute and volume before saving
+    if (LOWORD(wParam) == 101) { // Mute checkbox toggled
       soundMuted = (SendMessage(hChkMute, BM_GETCHECK, 0, 0) == BST_CHECKED);
-      soundVolume = (int)SendMessage(hSliderVolume, TBM_GETPOS, 0, 0) * 10;
-      ApplySettings();
-    } else if (LOWORD(wParam) == 101) { // Mute checkbox toggled
-      soundMuted = (SendMessage(hChkMute, BM_GETCHECK, 0, 0) == BST_CHECKED);
+      SaveConfig();
     }
     return 0;
   }
@@ -490,6 +481,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
       char volLabel[16];
       sprintf_s(volLabel, "%d%%", pos);
       SetWindowTextA(hLabelVolume, volLabel);
+    }
+    return 0;
+  }
+
+  case WM_TIMER: {
+    if (wParam == 1) {
+      // Auto-save: read all UI fields and apply silently
+      soundMuted = (SendMessage(hChkMute, BM_GETCHECK, 0, 0) == BST_CHECKED);
+      soundVolume = (int)SendMessage(hSliderVolume, TBM_GETPOS, 0, 0) * 10;
+      ApplySettings();
     }
     return 0;
   }
