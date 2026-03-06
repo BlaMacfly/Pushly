@@ -146,7 +146,7 @@ LRESULT CALLBACK VolumeBarProc(HWND hwnd, UINT msg, WPARAM wParam,
     HFONT hFont =
         CreateFont(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                   DEFAULT_PITCH | FF_SWISS, "Consolas");
+                   DEFAULT_PITCH | FF_SWISS, "Century Gothic");
     HFONT oldFont = (HFONT)SelectObject(hdc, hFont);
 
     // Position text clearly on the right
@@ -443,36 +443,36 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
   case WM_CREATE: {
     int y = 20;
     CreateWindow("STATIC", "Touche a spammer :", WS_VISIBLE | WS_CHILD, 20, y,
-                 150, 25, hwnd, NULL, NULL, NULL);
+                 170, 25, hwnd, NULL, NULL, NULL);
     char keyStr[2] = {targetKey, '\0'};
     hEditKey = CreateWindow("EDIT", keyStr,
-                            WS_VISIBLE | WS_CHILD | WS_BORDER | ES_CENTER, 180,
+                            WS_VISIBLE | WS_CHILD | WS_BORDER | ES_CENTER, 195,
                             y, 50, 25, hwnd, NULL, NULL, NULL);
 
     y += 45;
     CreateWindow("STATIC", "Delai/Intervalle (ms) :", WS_VISIBLE | WS_CHILD, 20,
-                 y, 150, 25, hwnd, NULL, NULL, NULL);
+                 y, 170, 25, hwnd, NULL, NULL, NULL);
     char delayStr[20];
     sprintf_s(delayStr, "%d", spamDelayMs);
     hEditDelay =
         CreateWindow("EDIT", delayStr,
                      WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER | ES_CENTER,
-                     180, y, 50, 25, hwnd, NULL, NULL, NULL);
+                     195, y, 50, 25, hwnd, NULL, NULL, NULL);
 
     y += 45;
     CreateWindow("STATIC", "Touche Demarrer :", WS_VISIBLE | WS_CHILD, 20, y,
-                 150, 25, hwnd, NULL, NULL, NULL);
+                 170, 25, hwnd, NULL, NULL, NULL);
     hHotKeyStart =
-        CreateWindow(HOTKEY_CLASS, "", WS_VISIBLE | WS_CHILD | WS_BORDER, 180,
-                     y, 130, 25, hwnd, NULL, NULL, NULL);
+        CreateWindow(HOTKEY_CLASS, "", WS_VISIBLE | WS_CHILD | WS_BORDER, 195,
+                     y, 115, 25, hwnd, NULL, NULL, NULL);
     SendMessage(hHotKeyStart, HKM_SETHOTKEY, MAKEWORD(startVK, startMods), 0);
 
     y += 45;
     CreateWindow("STATIC", "Touche Arreter :", WS_VISIBLE | WS_CHILD, 20, y,
-                 150, 25, hwnd, NULL, NULL, NULL);
+                 170, 25, hwnd, NULL, NULL, NULL);
     hHotKeyStop =
-        CreateWindow(HOTKEY_CLASS, "", WS_VISIBLE | WS_CHILD | WS_BORDER, 180,
-                     y, 130, 25, hwnd, NULL, NULL, NULL);
+        CreateWindow(HOTKEY_CLASS, "", WS_VISIBLE | WS_CHILD | WS_BORDER, 195,
+                     y, 115, 25, hwnd, NULL, NULL, NULL);
     SendMessage(hHotKeyStop, HKM_SETHOTKEY, MAKEWORD(stopVK, stopMods), 0);
 
     y += 45;
@@ -497,11 +497,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                      245, 25, hwnd, (HMENU)102, NULL, NULL);
     SetWindowSubclass(hSliderVolume, VolumeBarProc, 0, 0);
 
-    // Font - Using Consolas for a futuristic monospaced UI look
+    // Font - Using Century Gothic for a clean, futuristic space aesthetic
     HFONT hFont =
         CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                   DEFAULT_PITCH | FF_SWISS, "Consolas");
+                   DEFAULT_PITCH | FF_SWISS, "Century Gothic");
     SendMessage(hwnd, WM_SETFONT, (WPARAM)hFont, TRUE);
     EnumChildWindows(
         hwnd,
