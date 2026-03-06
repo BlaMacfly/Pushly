@@ -4,8 +4,11 @@
 
 # Pushly C++ Win32 Key Spammer
 
-[![Download](https://img.shields.io/badge/T%C3%A9l%C3%A9charger-v1.0.0-blue?style=for-the-badge&logo=windows)](https://github.com/BlaMacfly/Pushly/releases/tag/v1.0.0)
+[![Download](https://github.com/BlaMacfly/Pushly/releases/download/v1.0.0/Pushly.exe)](https://github.com/BlaMacfly/Pushly/releases/tag/v1.0.0)
 
+<p align="center">
+  <img src="Screenshot.png" alt="Pushly Screenshot" width="400" />
+</p>
 Pushly est un logiciel C++ Win32 extrêmement léger conçu pour optimiser l'expérience de jeu (notamment sur World of Warcraft) en automatisant la frappe séquentielle d'une touche avec une protection d'humanisation. Développé par **BlaMacfly**.
 
 ## Fonctionnalités Principales
