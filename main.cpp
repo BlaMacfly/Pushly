@@ -416,6 +416,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
       soundMuted = (SendMessage(hChkMute, BM_GETCHECK, 0, 0) == BST_CHECKED);
       soundVolume = (int)SendMessage(hSliderVolume, TBM_GETPOS, 0, 0) * 10;
       ApplySettings();
+    } else if (LOWORD(wParam) == 101) { // Mute checkbox toggled
+      soundMuted = (SendMessage(hChkMute, BM_GETCHECK, 0, 0) == BST_CHECKED);
     }
     return 0;
   }
