@@ -86,55 +86,20 @@ void SaveConfig() {
   WritePrivateProfileStringA("Settings", "StopMods", buf, path.c_str());
 }
 
-void PlaySoftBeep(double frequency, int durationMs, double volume) {
-  const int sampleRate = 44100;
-  const short channels = 1;
-  const short bitsPerSample = 16;
-  int numSamples = (sampleRate * durationMs) / 1000;
-  int dataSize = numSamples * channels * (bitsPerSample / 8);
-  int fileSize = 36 + dataSize;
+void PlayMp3(const char *filename) {
+  char exePath[MAX_PATH];
+  GetModuleFileNameA(NULL, exePath, MAX_PATH);
+  std::string dir(exePath);
+  dir = dir.substr(0, dir.find_last_of("\\/")) + "\\" + filename;
 
-  std::vector<uint8_t> waveData(fileSize + 8);
-  uint8_t *p = waveData.data();
+  // Stop any previously playing sound, then play the new one
+  std::string closeCmd = "close pushlySound";
+  mciSendStringA(closeCmd.c_str(), NULL, 0, NULL);
 
-  auto writeStr = [&](const char *s) {
-    memcpy(p, s, 4);
-    p += 4;
-  };
-  auto writeInt = [&](int v) {
-    *(int *)p = v;
-    p += 4;
-  };
-  auto writeShort = [&](short v) {
-    *(short *)p = v;
-    p += 2;
-  };
+  std::string openCmd = "open \"" + dir + "\" type mpegvideo alias pushlySound";
+  mciSendStringA(openCmd.c_str(), NULL, 0, NULL);
 
-  writeStr("RIFF");
-  writeInt(fileSize);
-  writeStr("WAVE");
-
-  writeStr("fmt ");
-  writeInt(16);
-  writeShort(1);
-  writeShort(channels);
-  writeInt(sampleRate);
-  writeInt(sampleRate * channels * (bitsPerSample / 8));
-  writeShort(channels * (bitsPerSample / 8));
-  writeShort(bitsPerSample);
-
-  writeStr("data");
-  writeInt(dataSize);
-
-  short *samples = (short *)p;
-  double amplitude = 32767.0 * volume;
-  for (int i = 0; i < numSamples; ++i) {
-    double t = (double)i / sampleRate;
-    samples[i] =
-        (short)(amplitude * sin(2.0 * 3.14159265358979323846 * frequency * t));
-  }
-
-  PlaySoundA((LPCSTR)waveData.data(), NULL, SND_MEMORY | SND_SYNC);
+  mciSendStringA("play pushlySound", NULL, 0, NULL);
 }
 
 void SpammerWorker() {
@@ -420,14 +385,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
       isSpamming = true;
       UpdateStatusUI();
-      // Start Beep (High pitched, fast) at 5% volume (feels like 30-40% to the
-      // human ear)
-      std::thread([]() { PlaySoftBeep(800.0, 150, 0.05); }).detach();
+      // Play custom start sound
+      std::thread([]() { PlayMp3("start.mp3"); }).detach();
     } else if (wParam == 2 && isSpamming) { // Stop
       isSpamming = false;
       UpdateStatusUI();
-      // Stop Beep (Low pitched, slower) at 5% volume
-      std::thread([]() { PlaySoftBeep(400.0, 200, 0.05); }).detach();
+      // Play custom stop sound
+      std::thread([]() { PlayMp3("stop.mp3"); }).detach();
     }
     return 0;
   }
