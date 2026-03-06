@@ -143,7 +143,10 @@ LRESULT CALLBACK VolumeBarProc(HWND hwnd, UINT msg, WPARAM wParam,
                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                    DEFAULT_PITCH | FF_SWISS, "Segoe UI");
     HFONT oldFont = (HFONT)SelectObject(hdc, hFont);
-    RECT textRc = {padding + trackW + 5, 0, rc.right, rc.bottom};
+
+    // We want the text to cleanly appear to the right of the track.
+    // Ensure the rect has enough space and sits properly vertically.
+    RECT textRc = {padding + trackW + 8, 0, rc.right, rc.bottom};
     DrawTextA(hdc, volText, -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     SelectObject(hdc, oldFont);
     DeleteObject(hFont);
