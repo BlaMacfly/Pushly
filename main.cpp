@@ -58,9 +58,12 @@ void LoadConfig();
 int VolumeFromMouse(HWND hwnd, int mouseX) {
   RECT rc;
   GetClientRect(hwnd, &rc);
-  int padding = 8;
-  int trackW = (rc.right - rc.left) - padding * 2;
-  int pos = mouseX - padding;
+  // Reserve 45px on the right for the percentage text so the track doesn't
+  // overlap it
+  int trackW = (rc.right - rc.left) - 45;
+  if (trackW < 10)
+    trackW = 10;
+  int pos = mouseX;
   if (pos < 0)
     pos = 0;
   if (pos > trackW)
@@ -82,10 +85,12 @@ LRESULT CALLBACK VolumeBarProc(HWND hwnd, UINT msg, WPARAM wParam,
     FillRect(hdc, &rc, bgBrush);
     DeleteObject(bgBrush);
 
-    int padding = 8;
     int trackH = 6;
     int trackY = (rc.bottom - rc.top) / 2 - trackH / 2;
-    int trackW = (rc.right - rc.left) - padding * 2;
+    // Reserve 45px on the right for the text
+    int trackW = (rc.right - rc.left) - 45;
+    if (trackW < 10)
+      trackW = 10;
     int vol = soundVolume / 10; // 0-100
     int fillW = (trackW * vol) / 100;
 
@@ -94,7 +99,7 @@ LRESULT CALLBACK VolumeBarProc(HWND hwnd, UINT msg, WPARAM wParam,
     HPEN trackPen = CreatePen(PS_SOLID, 1, RGB(60, 60, 65));
     SelectObject(hdc, trackBrush);
     SelectObject(hdc, trackPen);
-    RoundRect(hdc, padding, trackY, padding + trackW, trackY + trackH, 6, 6);
+    RoundRect(hdc, 0, trackY, trackW, trackY + trackH, 6, 6);
     DeleteObject(trackBrush);
     DeleteObject(trackPen);
 
@@ -104,14 +109,14 @@ LRESULT CALLBACK VolumeBarProc(HWND hwnd, UINT msg, WPARAM wParam,
       HPEN fillPen = CreatePen(PS_SOLID, 1, RGB(130, 80, 240));
       SelectObject(hdc, fillBrush);
       SelectObject(hdc, fillPen);
-      RoundRect(hdc, padding, trackY, padding + fillW, trackY + trackH, 6, 6);
+      RoundRect(hdc, 0, trackY, fillW, trackY + trackH, 6, 6);
       DeleteObject(fillBrush);
       DeleteObject(fillPen);
     }
 
     // Draw thumb (glowing circle)
     int thumbR = 8;
-    int thumbX = padding + fillW;
+    int thumbX = fillW;
     int thumbY = (rc.bottom - rc.top) / 2;
 
     // Outer glow
@@ -141,12 +146,11 @@ LRESULT CALLBACK VolumeBarProc(HWND hwnd, UINT msg, WPARAM wParam,
     HFONT hFont =
         CreateFont(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                   DEFAULT_PITCH | FF_SWISS, "Segoe UI");
+                   DEFAULT_PITCH | FF_SWISS, "Consolas");
     HFONT oldFont = (HFONT)SelectObject(hdc, hFont);
 
-    // We want the text to cleanly appear to the right of the track.
-    // Ensure the rect has enough space and sits properly vertically.
-    RECT textRc = {padding + trackW + 8, 0, rc.right, rc.bottom};
+    // Position text clearly on the right
+    RECT textRc = {trackW + 10, 0, rc.right, rc.bottom};
     DrawTextA(hdc, volText, -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     SelectObject(hdc, oldFont);
     DeleteObject(hFont);
@@ -490,14 +494,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                  hwnd, NULL, NULL, NULL);
     hSliderVolume =
         CreateWindow("STATIC", "", WS_VISIBLE | WS_CHILD | SS_NOTIFY, 85, y,
-                     240, 25, hwnd, (HMENU)102, NULL, NULL);
+                     245, 25, hwnd, (HMENU)102, NULL, NULL);
     SetWindowSubclass(hSliderVolume, VolumeBarProc, 0, 0);
 
-    // Font - Using Segoe UI bold for a modern touch
+    // Font - Using Consolas for a futuristic monospaced UI look
     HFONT hFont =
-        CreateFont(17, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
+        CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                   DEFAULT_PITCH | FF_SWISS, "Segoe UI");
+                   DEFAULT_PITCH | FF_SWISS, "Consolas");
     SendMessage(hwnd, WM_SETFONT, (WPARAM)hFont, TRUE);
     EnumChildWindows(
         hwnd,
