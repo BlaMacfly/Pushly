@@ -28,6 +28,9 @@ HWND hHotKeyStart = NULL;
 HWND hHotKeyStop = NULL;
 HWND hBtnApply = NULL;
 HWND hBtnStatus = NULL;
+HWND hChkMute = NULL;
+HWND hSliderVolume = NULL;
+HWND hLabelVolume = NULL;
 
 std::atomic<bool> isSpamming(false);
 std::atomic<bool> appRunning(true);
@@ -40,6 +43,9 @@ WORD startVK = VK_F9;
 WORD startMods = 0;
 WORD stopVK = VK_F10;
 WORD stopMods = 0;
+
+bool soundMuted = false;
+int soundVolume = 300; // MCI volume 0-1000 (default 30%)
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
@@ -60,6 +66,13 @@ void LoadConfig() {
   startMods = GetPrivateProfileIntA("Settings", "StartMods", 0, path.c_str());
   stopVK = GetPrivateProfileIntA("Settings", "StopVK", VK_F10, path.c_str());
   stopMods = GetPrivateProfileIntA("Settings", "StopMods", 0, path.c_str());
+
+  soundMuted = GetPrivateProfileIntA("Settings", "Muted", 0, path.c_str()) != 0;
+  soundVolume = GetPrivateProfileIntA("Settings", "Volume", 300, path.c_str());
+  if (soundVolume < 0)
+    soundVolume = 0;
+  if (soundVolume > 1000)
+    soundVolume = 1000;
 }
 
 void SaveConfig() {
@@ -84,9 +97,17 @@ void SaveConfig() {
   WritePrivateProfileStringA("Settings", "StopVK", buf, path.c_str());
   sprintf_s(buf, "%u", stopMods);
   WritePrivateProfileStringA("Settings", "StopMods", buf, path.c_str());
+
+  WritePrivateProfileStringA("Settings", "Muted", soundMuted ? "1" : "0",
+                             path.c_str());
+  sprintf_s(buf, "%d", soundVolume);
+  WritePrivateProfileStringA("Settings", "Volume", buf, path.c_str());
 }
 
 void PlayMp3(const char *filename) {
+  if (soundMuted)
+    return;
+
   char exePath[MAX_PATH];
   GetModuleFileNameA(NULL, exePath, MAX_PATH);
   std::string dir(exePath);
@@ -99,8 +120,10 @@ void PlayMp3(const char *filename) {
   std::string openCmd = "open \"" + dir + "\" type mpegvideo alias pushlySound";
   mciSendStringA(openCmd.c_str(), NULL, 0, NULL);
 
-  // Set volume to 30% (300 out of 1000)
-  mciSendStringA("setaudio pushlySound volume to 300", NULL, 0, NULL);
+  // Set volume from user setting (0-1000)
+  char volCmd[64];
+  sprintf_s(volCmd, "setaudio pushlySound volume to %d", soundVolume);
+  mciSendStringA(volCmd, NULL, 0, NULL);
 
   mciSendStringA("play pushlySound", NULL, 0, NULL);
 }
@@ -228,7 +251,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
   INITCOMMONCONTROLSEX icex;
   icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-  icex.dwICC = ICC_HOTKEY_CLASS;
+  icex.dwICC = ICC_HOTKEY_CLASS | ICC_BAR_CLASSES;
   InitCommonControlsEx(&icex);
 
   const char CLASS_NAME[] = "PushlyAppClass";
@@ -245,7 +268,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
   HWND hwnd = CreateWindowEx(
       0, CLASS_NAME, "Pushly - Key Spammer",
       WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT,
-      CW_USEDEFAULT, 350, 340, NULL, NULL, hInstance, NULL);
+      CW_USEDEFAULT, 370, 480, NULL, NULL, hInstance, NULL);
 
   if (hwnd == NULL)
     return 0;
@@ -328,6 +351,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                               hwnd, NULL, NULL, NULL);
     EnableWindow(hBtnStatus, FALSE);
 
+    // --- Sound Controls ---
+    y += 50;
+    hChkMute = CreateWindow("BUTTON", "  Mute (Couper le son)",
+                            WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX, 20, y, 200,
+                            25, hwnd, (HMENU)101, NULL, NULL);
+    if (soundMuted)
+      SendMessage(hChkMute, BM_SETCHECK, BST_CHECKED, 0);
+
+    y += 35;
+    CreateWindow("STATIC", "Volume :", WS_VISIBLE | WS_CHILD, 20, y, 60, 25,
+                 hwnd, NULL, NULL, NULL);
+    hSliderVolume = CreateWindow(TRACKBAR_CLASS, "",
+                                 WS_VISIBLE | WS_CHILD | TBS_HORZ | TBS_NOTICKS,
+                                 85, y, 170, 25, hwnd, (HMENU)102, NULL, NULL);
+    SendMessage(hSliderVolume, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
+    SendMessage(hSliderVolume, TBM_SETPOS, TRUE, soundVolume / 10);
+
+    char volLabel[16];
+    sprintf_s(volLabel, "%d%%", soundVolume / 10);
+    hLabelVolume = CreateWindow("STATIC", volLabel, WS_VISIBLE | WS_CHILD, 260,
+                                y, 45, 25, hwnd, NULL, NULL, NULL);
+
     // Font - Using Segoe UI bold for a modern touch
     HFONT hFont =
         CreateFont(17, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
@@ -367,7 +412,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
   case WM_COMMAND: {
     if (LOWORD(wParam) == 100) { // Apply button clicked
+      // Read mute and volume before saving
+      soundMuted = (SendMessage(hChkMute, BM_GETCHECK, 0, 0) == BST_CHECKED);
+      soundVolume = (int)SendMessage(hSliderVolume, TBM_GETPOS, 0, 0) * 10;
       ApplySettings();
+    }
+    return 0;
+  }
+
+  case WM_HSCROLL: {
+    if ((HWND)lParam == hSliderVolume) {
+      int pos = (int)SendMessage(hSliderVolume, TBM_GETPOS, 0, 0);
+      soundVolume = pos * 10;
+      char volLabel[16];
+      sprintf_s(volLabel, "%d%%", pos);
+      SetWindowTextA(hLabelVolume, volLabel);
     }
     return 0;
   }
