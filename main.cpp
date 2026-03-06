@@ -99,6 +99,9 @@ void PlayMp3(const char *filename) {
   std::string openCmd = "open \"" + dir + "\" type mpegvideo alias pushlySound";
   mciSendStringA(openCmd.c_str(), NULL, 0, NULL);
 
+  // Set volume to 30% (300 out of 1000)
+  mciSendStringA("setaudio pushlySound volume to 300", NULL, 0, NULL);
+
   mciSendStringA("play pushlySound", NULL, 0, NULL);
 }
 
