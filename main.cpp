@@ -138,8 +138,14 @@ void PlaySoftBeep(double frequency, int durationMs, double volume) {
 }
 
 void SpammerWorker() {
+  // True hardware entropy source (Windows CryptGenRandom under the hood)
   std::random_device rd;
   std::mt19937 gen(rd());
+  int iterationCount = 0;
+
+  // Re-seed threshold: itself randomized to avoid predictable re-seed patterns
+  std::uniform_int_distribution<> reseedDist(50, 150);
+  int reseedAt = reseedDist(gen);
 
   while (appRunning) {
     if (isSpamming) {
@@ -156,18 +162,31 @@ void SpammerWorker() {
         SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
       }
 
-      // Calculate Jitter (Humanized execution)
-      // +/- 20% of the base delay to evade anti-cheat
-      int jitterRange = spamDelayMs * 0.20;
-      if (jitterRange < 5)
-        jitterRange = 5; // Minimum jitter of 5ms
+      // --- Gaussian Humanized Jitter ---
+      // Standard deviation = 10% of delay (so ~95% of values fall within
+      // +/-20%) But outliers CAN happen naturally, just like a real human
+      double stddev = spamDelayMs * 0.10;
+      if (stddev < 3.0)
+        stddev = 3.0; // Minimum stddev of 3ms
 
-      std::uniform_int_distribution<> distrib(-jitterRange, jitterRange);
-      int finalDelay = spamDelayMs + distrib(gen);
+      std::normal_distribution<double> gaussDist((double)spamDelayMs, stddev);
+      int finalDelay = (int)gaussDist(gen);
+
+      // Clamp to sane minimum (never negative or zero)
       if (finalDelay < 1)
-        finalDelay = 1; // Prevent negative/zero delays
+        finalDelay = 1;
 
       Sleep(finalDelay);
+
+      // --- Anti-Cycle: Re-seed from hardware entropy periodically ---
+      // This guarantees no repeating PRNG sequence can ever be detected
+      iterationCount++;
+      if (iterationCount >= reseedAt) {
+        gen.seed(rd());             // Fresh hardware entropy
+        reseedAt = reseedDist(gen); // Randomize next re-seed point
+        iterationCount = 0;
+      }
+
     } else {
       Sleep(50);
     }
