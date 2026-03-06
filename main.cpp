@@ -30,10 +30,10 @@ HWND hBtnApply = NULL;
 HWND hBtnStatus = NULL;
 HWND hChkMute = NULL;
 HWND hSliderVolume = NULL;
-HWND hLabelVolume = NULL;
 
 // Hover tracking
 HWND hHoveredButton = NULL;
+bool isDraggingVolume = false;
 
 std::atomic<bool> isSpamming(false);
 std::atomic<bool> appRunning(true);
@@ -51,6 +51,133 @@ bool soundMuted = false;
 int soundVolume = 300; // MCI volume 0-1000 (default 30%)
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+void SaveConfig();
+void LoadConfig();
+
+// Custom volume bar subclass
+int VolumeFromMouse(HWND hwnd, int mouseX) {
+  RECT rc;
+  GetClientRect(hwnd, &rc);
+  int padding = 8;
+  int trackW = (rc.right - rc.left) - padding * 2;
+  int pos = mouseX - padding;
+  if (pos < 0)
+    pos = 0;
+  if (pos > trackW)
+    pos = trackW;
+  return (pos * 100) / trackW;
+}
+
+LRESULT CALLBACK VolumeBarProc(HWND hwnd, UINT msg, WPARAM wParam,
+                               LPARAM lParam, UINT_PTR, DWORD_PTR) {
+  switch (msg) {
+  case WM_PAINT: {
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(hwnd, &ps);
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+
+    // Fill background
+    HBRUSH bgBrush = CreateSolidBrush(RGB(30, 30, 30));
+    FillRect(hdc, &rc, bgBrush);
+    DeleteObject(bgBrush);
+
+    int padding = 8;
+    int trackH = 6;
+    int trackY = (rc.bottom - rc.top) / 2 - trackH / 2;
+    int trackW = (rc.right - rc.left) - padding * 2;
+    int vol = soundVolume / 10; // 0-100
+    int fillW = (trackW * vol) / 100;
+
+    // Draw track background (dark rounded)
+    HBRUSH trackBrush = CreateSolidBrush(RGB(50, 50, 55));
+    HPEN trackPen = CreatePen(PS_SOLID, 1, RGB(60, 60, 65));
+    SelectObject(hdc, trackBrush);
+    SelectObject(hdc, trackPen);
+    RoundRect(hdc, padding, trackY, padding + trackW, trackY + trackH, 6, 6);
+    DeleteObject(trackBrush);
+    DeleteObject(trackPen);
+
+    // Draw filled portion (purple gradient)
+    if (fillW > 2) {
+      HBRUSH fillBrush = CreateSolidBrush(RGB(110, 60, 210));
+      HPEN fillPen = CreatePen(PS_SOLID, 1, RGB(130, 80, 240));
+      SelectObject(hdc, fillBrush);
+      SelectObject(hdc, fillPen);
+      RoundRect(hdc, padding, trackY, padding + fillW, trackY + trackH, 6, 6);
+      DeleteObject(fillBrush);
+      DeleteObject(fillPen);
+    }
+
+    // Draw thumb (glowing circle)
+    int thumbR = 8;
+    int thumbX = padding + fillW;
+    int thumbY = (rc.bottom - rc.top) / 2;
+
+    // Outer glow
+    HBRUSH glowBrush = CreateSolidBrush(RGB(130, 80, 240));
+    HPEN glowPen = CreatePen(PS_SOLID, 2, RGB(160, 120, 255));
+    SelectObject(hdc, glowBrush);
+    SelectObject(hdc, glowPen);
+    Ellipse(hdc, thumbX - thumbR, thumbY - thumbR, thumbX + thumbR,
+            thumbY + thumbR);
+    DeleteObject(glowBrush);
+    DeleteObject(glowPen);
+
+    // Inner bright core
+    HBRUSH coreBrush = CreateSolidBrush(RGB(200, 180, 255));
+    HPEN corePen = CreatePen(PS_NULL, 0, 0);
+    SelectObject(hdc, coreBrush);
+    SelectObject(hdc, corePen);
+    Ellipse(hdc, thumbX - 4, thumbY - 4, thumbX + 4, thumbY + 4);
+    DeleteObject(coreBrush);
+    DeleteObject(corePen);
+
+    // Draw percentage text
+    char volText[8];
+    sprintf_s(volText, "%d%%", vol);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, RGB(200, 200, 220));
+    HFONT hFont =
+        CreateFont(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
+                   OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                   DEFAULT_PITCH | FF_SWISS, "Segoe UI");
+    HFONT oldFont = (HFONT)SelectObject(hdc, hFont);
+    RECT textRc = {padding + trackW + 5, 0, rc.right, rc.bottom};
+    DrawTextA(hdc, volText, -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, oldFont);
+    DeleteObject(hFont);
+
+    EndPaint(hwnd, &ps);
+    return 0;
+  }
+  case WM_LBUTTONDOWN: {
+    SetCapture(hwnd);
+    isDraggingVolume = true;
+    int vol = VolumeFromMouse(hwnd, (short)LOWORD(lParam));
+    soundVolume = vol * 10;
+    InvalidateRect(hwnd, NULL, FALSE);
+    return 0;
+  }
+  case WM_MOUSEMOVE: {
+    if (isDraggingVolume) {
+      int vol = VolumeFromMouse(hwnd, (short)LOWORD(lParam));
+      soundVolume = vol * 10;
+      InvalidateRect(hwnd, NULL, FALSE);
+    }
+    return 0;
+  }
+  case WM_LBUTTONUP: {
+    if (isDraggingVolume) {
+      isDraggingVolume = false;
+      ReleaseCapture();
+      SaveConfig();
+    }
+    return 0;
+  }
+  }
+  return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
 
 void LoadConfig() {
   char exePath[MAX_PATH];
@@ -358,16 +485,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     y += 35;
     CreateWindow("STATIC", "Volume :", WS_VISIBLE | WS_CHILD, 20, y, 60, 25,
                  hwnd, NULL, NULL, NULL);
-    hSliderVolume = CreateWindow(TRACKBAR_CLASS, "",
-                                 WS_VISIBLE | WS_CHILD | TBS_HORZ | TBS_NOTICKS,
-                                 85, y, 180, 25, hwnd, (HMENU)102, NULL, NULL);
-    SendMessage(hSliderVolume, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
-    SendMessage(hSliderVolume, TBM_SETPOS, TRUE, soundVolume / 10);
-
-    char volLabel[16];
-    sprintf_s(volLabel, "%d%%", soundVolume / 10);
-    hLabelVolume = CreateWindow("STATIC", volLabel, WS_VISIBLE | WS_CHILD, 270,
-                                y, 45, 25, hwnd, NULL, NULL, NULL);
+    hSliderVolume =
+        CreateWindow("STATIC", "", WS_VISIBLE | WS_CHILD | SS_NOTIFY, 85, y,
+                     240, 25, hwnd, (HMENU)102, NULL, NULL);
+    SetWindowSubclass(hSliderVolume, VolumeBarProc, 0, 0);
 
     // Font - Using Segoe UI bold for a modern touch
     HFONT hFont =
@@ -475,13 +596,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
   }
 
   case WM_HSCROLL: {
-    if ((HWND)lParam == hSliderVolume) {
-      int pos = (int)SendMessage(hSliderVolume, TBM_GETPOS, 0, 0);
-      soundVolume = pos * 10;
-      char volLabel[16];
-      sprintf_s(volLabel, "%d%%", pos);
-      SetWindowTextA(hLabelVolume, volLabel);
-    }
     return 0;
   }
 
@@ -489,8 +603,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     if (wParam == 1) {
       // Auto-save: read all UI fields and apply silently
       soundMuted = (SendMessage(hChkMute, BM_GETCHECK, 0, 0) == BST_CHECKED);
-      soundVolume = (int)SendMessage(hSliderVolume, TBM_GETPOS, 0, 0) * 10;
+      // soundVolume is already kept in sync by the custom volume bar
       ApplySettings();
+      // Repaint volume bar in case volume changed externally
+      InvalidateRect(hSliderVolume, NULL, FALSE);
     }
     return 0;
   }
