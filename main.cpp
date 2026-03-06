@@ -32,6 +32,9 @@ HWND hChkMute = NULL;
 HWND hSliderVolume = NULL;
 HWND hLabelVolume = NULL;
 
+// Hover tracking
+HWND hHoveredButton = NULL;
+
 std::atomic<bool> isSpamming(false);
 std::atomic<bool> appRunning(true);
 std::thread spamThread;
@@ -192,6 +195,7 @@ void UpdateStatusUI() {
       SetWindowTextA(hBtnStatus,
                      "STATUT: EN ATTENTE (Demarrer avec Raccourci)");
     }
+    InvalidateRect(hBtnStatus, NULL, TRUE); // Force redraw with new color
   }
 }
 
@@ -342,13 +346,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
     y += 45;
     hBtnApply = CreateWindow("BUTTON", "Appliquer les Parametres",
-                             WS_VISIBLE | WS_CHILD | BS_FLAT, 20, y, 290, 35,
-                             hwnd, (HMENU)100, NULL, NULL);
+                             WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, 20, y, 310,
+                             38, hwnd, (HMENU)100, NULL, NULL);
 
-    y += 45;
+    y += 48;
     hBtnStatus = CreateWindow("BUTTON", "STATUT: EN ATTENTE",
-                              WS_VISIBLE | WS_CHILD | BS_FLAT, 20, y, 290, 35,
-                              hwnd, NULL, NULL, NULL);
+                              WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, 20, y, 310,
+                              38, hwnd, NULL, NULL, NULL);
     EnableWindow(hBtnStatus, FALSE);
 
     // --- Sound Controls ---
@@ -364,13 +368,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                  hwnd, NULL, NULL, NULL);
     hSliderVolume = CreateWindow(TRACKBAR_CLASS, "",
                                  WS_VISIBLE | WS_CHILD | TBS_HORZ | TBS_NOTICKS,
-                                 85, y, 170, 25, hwnd, (HMENU)102, NULL, NULL);
+                                 85, y, 180, 25, hwnd, (HMENU)102, NULL, NULL);
     SendMessage(hSliderVolume, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
     SendMessage(hSliderVolume, TBM_SETPOS, TRUE, soundVolume / 10);
 
     char volLabel[16];
     sprintf_s(volLabel, "%d%%", soundVolume / 10);
-    hLabelVolume = CreateWindow("STATIC", volLabel, WS_VISIBLE | WS_CHILD, 260,
+    hLabelVolume = CreateWindow("STATIC", volLabel, WS_VISIBLE | WS_CHILD, 270,
                                 y, 45, 25, hwnd, NULL, NULL, NULL);
 
     // Font - Using Segoe UI bold for a modern touch
@@ -392,10 +396,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
   case WM_CTLCOLOREDIT: {
     HDC hdc = (HDC)wParam;
-    SetTextColor(hdc, RGB(255, 255, 255)); // White text
-    SetBkColor(hdc, RGB(50, 50, 50));      // Dark grey background
-    static HBRUSH hbrBkgnd = CreateSolidBrush(RGB(50, 50, 50));
-    return (INT_PTR)hbrBkgnd;
+    SetTextColor(hdc, RGB(230, 230, 230));
+    SetBkColor(hdc, RGB(45, 45, 50));
+    static HBRUSH hbrEdit = CreateSolidBrush(RGB(45, 45, 50));
+    return (INT_PTR)hbrEdit;
   }
 
   case WM_CTLCOLORBTN: {
@@ -404,10 +408,67 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
   case WM_CTLCOLORSTATIC: {
     HDC hdcStatic = (HDC)wParam;
-    SetTextColor(hdcStatic, RGB(220, 220, 220)); // Light grey text
+    SetTextColor(hdcStatic, RGB(200, 200, 210));
     SetBkMode(hdcStatic, TRANSPARENT);
-    static HBRUSH hbrBkgnd = CreateSolidBrush(RGB(30, 30, 30));
-    return (LRESULT)hbrBkgnd;
+    static HBRUSH hbrStatic = CreateSolidBrush(RGB(30, 30, 30));
+    return (LRESULT)hbrStatic;
+  }
+
+  case WM_DRAWITEM: {
+    LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
+    if (dis->CtlType != ODT_BUTTON)
+      break;
+
+    HDC hdc = dis->hDC;
+    RECT rc = dis->rcItem;
+
+    // Pick colors based on which button
+    COLORREF bgColor, textColor, borderColor;
+    bool isStatus = (dis->hwndItem == hBtnStatus);
+    bool isHovered = (dis->hwndItem == hHoveredButton);
+
+    if (isStatus) {
+      if (isSpamming) {
+        bgColor = RGB(30, 120, 50); // Green
+        borderColor = RGB(50, 180, 80);
+      } else {
+        bgColor = RGB(60, 60, 65);
+        borderColor = RGB(80, 80, 90);
+      }
+      textColor = RGB(200, 200, 200);
+    } else {
+      // Apply button - accent purple
+      bgColor = isHovered ? RGB(110, 70, 200) : RGB(88, 55, 170);
+      borderColor = RGB(130, 90, 220);
+      textColor = RGB(255, 255, 255);
+    }
+
+    // Fill rounded rectangle
+    HBRUSH hBrush = CreateSolidBrush(bgColor);
+    HPEN hPen = CreatePen(PS_SOLID, 2, borderColor);
+    HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, hBrush);
+    HPEN oldPen = (HPEN)SelectObject(hdc, hPen);
+    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 14, 14);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(hBrush);
+    DeleteObject(hPen);
+
+    // Draw text
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, textColor);
+    HFONT hFont =
+        CreateFont(15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
+                   OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                   DEFAULT_PITCH | FF_SWISS, "Segoe UI");
+    HFONT oldFont = (HFONT)SelectObject(hdc, hFont);
+    char btnText[128];
+    GetWindowTextA(dis->hwndItem, btnText, 128);
+    DrawTextA(hdc, btnText, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, oldFont);
+    DeleteObject(hFont);
+
+    return TRUE;
   }
 
   case WM_COMMAND: {
