@@ -1,8 +1,10 @@
+# Build output
 /Pushly.exe
 /config.ini
-/build_out.txt
-/build_out8.txt
-/build.log
-/path.txt
+
+# Build artifacts / logs
+build*.log
+build_out*.txt
+path.txt
 *.obj
 *.res

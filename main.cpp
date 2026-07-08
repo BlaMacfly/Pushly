@@ -29,7 +29,6 @@ HWND hEditKey = NULL;
 HWND hEditDelay = NULL;
 HWND hHotKeyStart = NULL;
 HWND hHotKeyStop = NULL;
-HWND hBtnApply = NULL;
 HWND hBtnStatus = NULL;
 HWND hChkMute = NULL;
 HWND hSliderVolume = NULL;
@@ -146,17 +145,17 @@ LRESULT CALLBACK VolumeBarProc(HWND hwnd, UINT msg, WPARAM wParam,
     sprintf_s(volText, "%d%%", vol);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, RGB(200, 200, 220));
-    HFONT hFont =
+    // Cached: this bar repaints on every mouse move while dragging the volume.
+    static HFONT hVolFont =
         CreateFont(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                    DEFAULT_PITCH | FF_SWISS, "Century Gothic");
-    HFONT oldFont = (HFONT)SelectObject(hdc, hFont);
+    HFONT oldFont = (HFONT)SelectObject(hdc, hVolFont);
 
     // Position text clearly on the right
     RECT textRc = {trackW + 10, 0, rc.right, rc.bottom};
     DrawTextA(hdc, volText, -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     SelectObject(hdc, oldFont);
-    DeleteObject(hFont);
 
     EndPaint(hwnd, &ps);
     return 0;
@@ -532,7 +531,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
   }
 
   case WM_CTLCOLORBTN: {
-    return (LRESULT)CreateSolidBrush(RGB(30, 30, 30));
+    // Created once and reused; returning a fresh brush every message would leak
+    // a GDI handle on each repaint.
+    static HBRUSH hbrBtn = CreateSolidBrush(RGB(30, 30, 30));
+    return (LRESULT)hbrBtn;
   }
 
   case WM_CTLCOLORSTATIC: {
@@ -586,16 +588,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     // Draw text
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, textColor);
-    HFONT hFont =
+    // Font is built once and cached; recreating it on every repaint churns GDI.
+    static HFONT hBtnFont =
         CreateFont(15, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
                    OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                    DEFAULT_PITCH | FF_SWISS, "Segoe UI");
-    HFONT oldFont = (HFONT)SelectObject(hdc, hFont);
+    HFONT oldFont = (HFONT)SelectObject(hdc, hBtnFont);
     char btnText[128];
     GetWindowTextA(dis->hwndItem, btnText, 128);
     DrawTextA(hdc, btnText, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     SelectObject(hdc, oldFont);
-    DeleteObject(hFont);
 
     return TRUE;
   }
