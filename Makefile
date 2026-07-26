@@ -15,6 +15,9 @@ install: pushly
 	install -Dm644 stop.mp3 $(DESTDIR)$(PREFIX)/share/pushly/stop.mp3
 	install -Dm644 PushlyLogo.png $(DESTDIR)$(PREFIX)/share/pushly/PushlyLogo.png
 	install -Dm644 PushlyLogo.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/256x256/apps/pushly.png
+	install -Dm644 icons/pushly-128.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/128x128/apps/pushly.png
+	install -Dm644 icons/pushly-64.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/64x64/apps/pushly.png
+	install -Dm644 icons/pushly-48.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps/pushly.png
 	install -Dm644 pushly.desktop $(DESTDIR)$(PREFIX)/share/applications/pushly.desktop
 
 clean:

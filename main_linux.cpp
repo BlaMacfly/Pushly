@@ -456,7 +456,9 @@ static GtkWidget *MakeLabel(const char *text) {
 
 int main(int argc, char **argv) {
   XInitThreads();
+  g_set_prgname("pushly");
   gtk_init(&argc, &argv);
+  gtk_window_set_default_icon_name("pushly");
   gst_init(&argc, &argv);
 
   resourceDir = FindResourceDir();

@@ -6,5 +6,6 @@ Comment[en]=Lightweight key spammer with humanized intervals
 Exec=pushly
 Icon=pushly
 Terminal=false
+StartupWMClass=pushly
 Categories=Utility;
 Keywords=key;spam;autoclicker;macro;
