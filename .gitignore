@@ -8,3 +8,12 @@ build_out*.txt
 path.txt
 *.obj
 *.res
+
+# Linux build
+/pushly
+AppDir/
+*.AppImage
+*.pkg.tar.zst
+/pkg/
+/src/
+appimagetool*

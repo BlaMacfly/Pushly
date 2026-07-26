@@ -80,6 +80,35 @@ L'icône déclarée dans `resource.rc` est automatiquement intégrée à l'exéc
 final. Une variante PowerShell (`build.ps1`) régénère au passage l'icône depuis
 le logo via `convert_ico.ps1`.
 
+## 🐧 Version Linux (branche `linux`)
+
+Cette branche contient un **portage Linux natif** (`main_linux.cpp`) : GUI GTK3
+dark mode, injection de touches via **XTest**, raccourcis globaux via
+**XGrabKey**, sons via GStreamer. La configuration est sauvegardée dans
+`~/.config/pushly/config.ini`.
+
+> **Note** : les raccourcis globaux et l'injection de touches nécessitent une
+> session **X11** (sous Wayland, seules les applications XWayland reçoivent les
+> frappes injectées).
+
+### Installation
+
+- **AppImage** : téléchargez `Pushly-x86_64.AppImage` depuis les
+  [Releases](https://github.com/BlaMacfly/Pushly/releases), puis
+  `chmod +x Pushly-x86_64.AppImage && ./Pushly-x86_64.AppImage`.
+  Dépendances système : GTK3, GStreamer (présents sur la plupart des distros).
+- **Arch Linux / CachyOS / Manjaro (pacman)** : téléchargez
+  `pushly-1.0.1-1-x86_64.pkg.tar.zst` depuis les Releases puis
+  `sudo pacman -U pushly-*.pkg.tar.zst`, ou compilez avec `makepkg -si`
+  depuis le `PKGBUILD` fourni.
+
+### Compilation manuelle
+
+```bash
+make          # nécessite gtk3, libxtst, gstreamer (headers inclus sur Arch)
+./pushly
+```
+
 ## ⚠️ Avertissement
 
 Cet outil automatise des saisies clavier. L'utilisation d'automatisation dans des

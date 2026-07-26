@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Pushly
+Comment=Key spammer léger avec intervalle humanisé
+Comment[en]=Lightweight key spammer with humanized intervals
+Exec=pushly
+Icon=pushly
+Terminal=false
+Categories=Utility;
+Keywords=key;spam;autoclicker;macro;
