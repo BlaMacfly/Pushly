@@ -83,13 +83,25 @@ le logo via `convert_ico.ps1`.
 ## 🐧 Version Linux (branche `linux`)
 
 Cette branche contient un **portage Linux natif** (`main_linux.cpp`) : GUI GTK3
-dark mode, injection de touches via **XTest**, raccourcis globaux via
-**XGrabKey**, sons via GStreamer. La configuration est sauvegardée dans
-`~/.config/pushly/config.ini`.
+dark mode, sons via GStreamer, configuration sauvegardée dans
+`~/.config/pushly/config.ini`. Deux backends sélectionnés automatiquement :
 
-> **Note** : les raccourcis globaux et l'injection de touches nécessitent une
-> session **X11** (sous Wayland, seules les applications XWayland reçoivent les
-> frappes injectées).
+- **Wayland** : injection via un clavier virtuel **uinput** (`/dev/uinput`) et
+  raccourcis globaux par lecture **evdev** (`/dev/input`) — fonctionne avec
+  toutes les applications, natives Wayland comprises.
+- **X11** : injection **XTest** et raccourcis **XGrabKey** — aucune permission
+  particulière requise.
+
+> **Wayland** : ajoutez votre utilisateur au groupe `input` puis
+> reconnectez-vous :
+>
+> ```bash
+> sudo usermod -aG input $USER
+> ```
+>
+> Le paquet installe une règle udev (`99-pushly-uinput.rules`) donnant l'accès
+> `uinput` au groupe `input`. Variable `PUSHLY_BACKEND=x11|uinput` pour forcer
+> un backend.
 
 ### Installation
 

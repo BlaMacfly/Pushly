@@ -19,6 +19,7 @@ install: pushly
 	install -Dm644 icons/pushly-64.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/64x64/apps/pushly.png
 	install -Dm644 icons/pushly-48.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps/pushly.png
 	install -Dm644 pushly.desktop $(DESTDIR)$(PREFIX)/share/applications/pushly.desktop
+	install -Dm644 99-pushly-uinput.rules $(DESTDIR)$(PREFIX)/lib/udev/rules.d/99-pushly-uinput.rules
 
 clean:
 	rm -f pushly

@@ -1,0 +1,2 @@
+# Pushly : accès au clavier virtuel uinput pour le groupe input (Wayland)
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

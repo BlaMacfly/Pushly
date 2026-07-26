@@ -1,22 +1,32 @@
-// Pushly — portage Linux (GTK3 + XTest + GStreamer)
-// Injection de touches via XTest, raccourcis globaux via XGrabKey (session X11
-// ou XWayland requis pour les hotkeys globaux).
+// Pushly — portage Linux (GTK3 + GStreamer)
+// Deux backends d'injection/raccourcis :
+//  - Wayland : clavier virtuel uinput (/dev/uinput) + lecture des raccourcis
+//    globaux via evdev (/dev/input/event*, nécessite le groupe "input")
+//  - X11     : XTest + XGrabKey (aucune permission particulière)
+// Le backend est choisi automatiquement selon la session (PUSHLY_BACKEND=x11
+// ou uinput pour forcer).
 
 #include <gtk/gtk.h>
-#include <gdk/gdkx.h>
 #include <gst/gst.h>
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 #include <X11/extensions/XTest.h>
+#include <linux/uinput.h>
+#include <linux/input-event-codes.h>
 
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <dirent.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <poll.h>
 #include <random>
 #include <string>
+#include <sys/ioctl.h>
 #include <thread>
 #include <unistd.h>
-#include <limits.h>
+#include <vector>
 
 #define PUSHLY_VERSION "1.0.1"
 
@@ -49,13 +59,16 @@ static GtkWidget *btnHotkeyStop = nullptr;
 static GtkWidget *btnStatus = nullptr;
 static GtkWidget *chkMute = nullptr;
 static GtkWidget *scaleVolume = nullptr;
+static GtkWidget *lblBackend = nullptr;
 
-// 0 = aucune capture, 1 = capture raccourci Démarrer, 2 = capture Arrêter
-static int capturingHotkey = 0;
+static int capturingHotkey = 0; // 0 aucun, 1 Démarrer, 2 Arrêter
 static bool loadingConfig = false;
 
 static GstElement *soundPlayer = nullptr;
 static std::string resourceDir;
+
+static bool useUinput = false;
+static int uinputFd = -1;
 
 // ----------------------------------------------------------------------------
 // Ressources (start.mp3 / stop.mp3)
@@ -168,7 +181,7 @@ static void LoadConfig() {
 }
 
 // ----------------------------------------------------------------------------
-// Thread de spam (XTest)
+// Conversion keysym/keyval -> code evdev
 // ----------------------------------------------------------------------------
 static KeySym KeysymFromTarget(const std::string &s) {
   if (s.empty())
@@ -179,21 +192,145 @@ static KeySym KeysymFromTarget(const std::string &s) {
   return ks;
 }
 
-static void SpamLoop() {
-  Display *dpy = XOpenDisplay(nullptr);
-  if (!dpy) {
-    isSpamming = false;
-    return;
+// Table de secours (QWERTY/positions communes) si aucun serveur X n'est
+// joignable pour la conversion tenant compte de la disposition clavier.
+static int FallbackEvdevCode(KeySym ks) {
+  if (ks >= XK_F1 && ks <= XK_F10)
+    return KEY_F1 + (int)(ks - XK_F1);
+  if (ks == XK_F11)
+    return KEY_F11;
+  if (ks == XK_F12)
+    return KEY_F12;
+  if (ks >= XK_1 && ks <= XK_9)
+    return KEY_1 + (int)(ks - XK_1);
+  if (ks == XK_0)
+    return KEY_0;
+  if (ks >= XK_A && ks <= XK_Z)
+    ks = ks - XK_A + XK_a;
+  static const int letters[26] = {
+      KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I,
+      KEY_J, KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R,
+      KEY_S, KEY_T, KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z};
+  if (ks >= XK_a && ks <= XK_z)
+    return letters[ks - XK_a];
+  switch (ks) {
+  case XK_space:
+    return KEY_SPACE;
+  case XK_Return:
+    return KEY_ENTER;
+  case XK_Tab:
+    return KEY_TAB;
+  case XK_Escape:
+    return KEY_ESC;
+  case XK_BackSpace:
+    return KEY_BACKSPACE;
+  case XK_Up:
+    return KEY_UP;
+  case XK_Down:
+    return KEY_DOWN;
+  case XK_Left:
+    return KEY_LEFT;
+  case XK_Right:
+    return KEY_RIGHT;
   }
+  return 0;
+}
+
+// Convertit un keysym en code evdev en respectant la disposition clavier
+// (AZERTY...) via le serveur X / XWayland : keycode X = code evdev + 8.
+static int EvdevCodeFromKeysym(KeySym ks) {
+  if (ks == NoSymbol)
+    return 0;
+  static Display *mapDpy = XOpenDisplay(nullptr);
+  if (mapDpy) {
+    KeyCode kc = XKeysymToKeycode(mapDpy, ks);
+    if (kc > 8)
+      return (int)kc - 8;
+  }
+  return FallbackEvdevCode(ks);
+}
+
+// ----------------------------------------------------------------------------
+// Backend uinput : clavier virtuel
+// ----------------------------------------------------------------------------
+static const char *kVirtualName = "Pushly Virtual Keyboard";
+
+static int OpenUinput() {
+  int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+  if (fd < 0)
+    return -1;
+  ioctl(fd, UI_SET_EVBIT, EV_KEY);
+  ioctl(fd, UI_SET_EVBIT, EV_SYN);
+  for (int code = 1; code <= 248; code++)
+    ioctl(fd, UI_SET_KEYBIT, code);
+
+  struct uinput_setup setup;
+  memset(&setup, 0, sizeof(setup));
+  setup.id.bustype = BUS_VIRTUAL;
+  setup.id.vendor = 0x5075; // "Pu"
+  setup.id.product = 0x736c; // "sl"
+  snprintf(setup.name, sizeof(setup.name), "%s", kVirtualName);
+  if (ioctl(fd, UI_DEV_SETUP, &setup) < 0 || ioctl(fd, UI_DEV_CREATE) < 0) {
+    close(fd);
+    return -1;
+  }
+  usleep(300000); // laisse le compositeur enregistrer le périphérique
+  return fd;
+}
+
+static void UinputEmit(int fd, int type, int code, int value) {
+  struct input_event ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.type = (unsigned short)type;
+  ev.code = (unsigned short)code;
+  ev.value = value;
+  (void)!write(fd, &ev, sizeof(ev));
+}
+
+static void UinputTapKey(int fd, int code) {
+  UinputEmit(fd, EV_KEY, code, 1);
+  UinputEmit(fd, EV_SYN, SYN_REPORT, 0);
+  UinputEmit(fd, EV_KEY, code, 0);
+  UinputEmit(fd, EV_SYN, SYN_REPORT, 0);
+}
+
+// ----------------------------------------------------------------------------
+// Thread de spam
+// ----------------------------------------------------------------------------
+static void SpamLoop() {
+  Display *xDpy = nullptr;
+  KeyCode xKc = 0;
+  int evCode = 0;
+
+  if (useUinput) {
+    evCode = EvdevCodeFromKeysym(KeysymFromTarget(targetKey));
+    if (evCode == 0 || uinputFd < 0) {
+      isSpamming = false;
+      return;
+    }
+  } else {
+    xDpy = XOpenDisplay(nullptr);
+    KeySym ks = KeysymFromTarget(targetKey);
+    xKc = (xDpy && ks != NoSymbol) ? XKeysymToKeycode(xDpy, ks) : 0;
+    if (!xKc) {
+      if (xDpy)
+        XCloseDisplay(xDpy);
+      isSpamming = false;
+      return;
+    }
+  }
+
   std::mt19937 rng{std::random_device{}()};
   int sinceReseed = 0;
-  KeySym ks = KeysymFromTarget(targetKey);
-  KeyCode kc = (ks != NoSymbol) ? XKeysymToKeycode(dpy, ks) : 0;
 
-  while (isSpamming && appRunning && kc != 0) {
-    XTestFakeKeyEvent(dpy, kc, True, CurrentTime);
-    XTestFakeKeyEvent(dpy, kc, False, CurrentTime);
-    XFlush(dpy);
+  while (isSpamming && appRunning) {
+    if (useUinput) {
+      UinputTapKey(uinputFd, evCode);
+    } else {
+      XTestFakeKeyEvent(xDpy, xKc, True, CurrentTime);
+      XTestFakeKeyEvent(xDpy, xKc, False, CurrentTime);
+      XFlush(xDpy);
+    }
 
     // Jitter gaussien : écart-type = 10 % du délai, re-seed périodique
     double mean = (double)spamDelayMs.load();
@@ -208,7 +345,8 @@ static void SpamLoop() {
       sinceReseed = 0;
     }
   }
-  XCloseDisplay(dpy);
+  if (xDpy)
+    XCloseDisplay(xDpy);
 }
 
 // ----------------------------------------------------------------------------
@@ -257,12 +395,158 @@ static gboolean OnHotkeyStop(gpointer) {
   return G_SOURCE_REMOVE;
 }
 
+static gboolean SetBackendWarning(gpointer text) {
+  if (lblBackend)
+    gtk_label_set_markup(GTK_LABEL(lblBackend), (const char *)text);
+  return G_SOURCE_REMOVE;
+}
+
 // ----------------------------------------------------------------------------
-// Thread raccourcis globaux (XGrabKey sur la fenêtre racine)
+// Raccourcis globaux — backend evdev (Wayland)
+// ----------------------------------------------------------------------------
+struct EvdevDev {
+  int fd;
+};
+
+static bool IsKeyboardFd(int fd) {
+  unsigned long evbits = 0;
+  if (ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), &evbits) < 0)
+    return false;
+  if (!(evbits & (1UL << EV_KEY)))
+    return false;
+  unsigned long keybits[(KEY_MAX + 1) / (8 * sizeof(long)) + 1] = {0};
+  if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keybits)), keybits) < 0)
+    return false;
+  auto has = [&](int code) {
+    return (keybits[code / (8 * sizeof(long))] >>
+            (code % (8 * sizeof(long)))) &
+           1UL;
+  };
+  return has(KEY_A) && has(KEY_SPACE);
+}
+
+static std::vector<EvdevDev> ScanKeyboards() {
+  std::vector<EvdevDev> devs;
+  DIR *d = opendir("/dev/input");
+  if (!d)
+    return devs;
+  struct dirent *ent;
+  while ((ent = readdir(d))) {
+    if (strncmp(ent->d_name, "event", 5) != 0)
+      continue;
+    std::string path = std::string("/dev/input/") + ent->d_name;
+    int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
+    if (fd < 0)
+      continue;
+    char name[256] = {0};
+    ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name);
+    // Ignore notre propre clavier virtuel
+    if (strstr(name, "Pushly") || !IsKeyboardFd(fd)) {
+      close(fd);
+      continue;
+    }
+    devs.push_back({fd});
+  }
+  closedir(d);
+  return devs;
+}
+
+static guint HeldModsFromState(const bool *held) {
+  guint m = 0;
+  if (held[KEY_LEFTSHIFT] || held[KEY_RIGHTSHIFT])
+    m |= GDK_SHIFT_MASK;
+  if (held[KEY_LEFTCTRL] || held[KEY_RIGHTCTRL])
+    m |= GDK_CONTROL_MASK;
+  if (held[KEY_LEFTALT] || held[KEY_RIGHTALT])
+    m |= GDK_MOD1_MASK;
+  if (held[KEY_LEFTMETA] || held[KEY_RIGHTMETA])
+    m |= GDK_SUPER_MASK;
+  return m;
+}
+
+static const guint kGdkModMask =
+    GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SUPER_MASK;
+
+static void EvdevHotkeyLoop() {
+  std::vector<EvdevDev> devs = ScanKeyboards();
+  if (devs.empty()) {
+    g_idle_add(SetBackendWarning,
+               (gpointer) "<span foreground='#e0a030' size='small'>⚠ "
+                          "Raccourcis globaux indisponibles : ajoutez-vous au "
+                          "groupe input\n(sudo usermod -aG input $USER puis "
+                          "reconnectez-vous)</span>");
+  }
+
+  bool held[KEY_MAX + 1] = {false};
+  int startCode = 0, stopCode = 0;
+  guint startM = 0, stopM = 0;
+  int rescanMs = 0;
+
+  while (appRunning) {
+    if (hotkeysChanged.exchange(false)) {
+      startCode = EvdevCodeFromKeysym((KeySym)startKeyval.load());
+      stopCode = EvdevCodeFromKeysym((KeySym)stopKeyval.load());
+      startM = startMods.load() & kGdkModMask;
+      stopM = stopMods.load() & kGdkModMask;
+    }
+
+    if (rescanMs >= 3000) { // hotplug clavier
+      rescanMs = 0;
+      size_t before = devs.size();
+      for (auto &dv : devs)
+        close(dv.fd);
+      devs = ScanKeyboards();
+      if (devs.size() != before)
+        memset(held, 0, sizeof(held));
+    }
+
+    std::vector<struct pollfd> pfds;
+    for (auto &dv : devs)
+      pfds.push_back({dv.fd, POLLIN, 0});
+    int timeout = 200;
+    if (!pfds.empty())
+      poll(pfds.data(), pfds.size(), timeout);
+    else
+      usleep(timeout * 1000);
+    rescanMs += timeout;
+
+    for (size_t i = 0; i < pfds.size(); i++) {
+      if (!(pfds[i].revents & POLLIN))
+        continue;
+      struct input_event ev;
+      while (read(devs[i].fd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev)) {
+        if (ev.type != EV_KEY || ev.code > KEY_MAX)
+          continue;
+        if (ev.value == 1)
+          held[ev.code] = true;
+        else if (ev.value == 0)
+          held[ev.code] = false;
+        if (ev.value != 1)
+          continue;
+        guint mods = HeldModsFromState(held);
+        bool isStart = (startCode && (int)ev.code == startCode &&
+                        mods == startM);
+        bool isStop =
+            (stopCode && (int)ev.code == stopCode && mods == stopM);
+        if (isStart && isStop)
+          g_idle_add(isSpamming ? OnHotkeyStop : OnHotkeyStart, nullptr);
+        else if (isStart)
+          g_idle_add(OnHotkeyStart, nullptr);
+        else if (isStop)
+          g_idle_add(OnHotkeyStop, nullptr);
+      }
+    }
+  }
+  for (auto &dv : devs)
+    close(dv.fd);
+}
+
+// ----------------------------------------------------------------------------
+// Raccourcis globaux — backend X11 (XGrabKey)
 // ----------------------------------------------------------------------------
 static int IgnoreXError(Display *, XErrorEvent *) { return 0; }
 
-static const unsigned int kModMask =
+static const unsigned int kXModMask =
     ShiftMask | ControlMask | Mod1Mask | Mod4Mask;
 
 static void GrabCombo(Display *dpy, Window root, KeyCode kc,
@@ -273,7 +557,7 @@ static void GrabCombo(Display *dpy, Window root, KeyCode kc,
     XGrabKey(dpy, kc, mods | lock, root, False, GrabModeAsync, GrabModeAsync);
 }
 
-static void HotkeyLoop() {
+static void X11HotkeyLoop() {
   Display *dpy = XOpenDisplay(nullptr);
   if (!dpy)
     return;
@@ -288,8 +572,8 @@ static void HotkeyLoop() {
       XUngrabKey(dpy, AnyKey, AnyModifier, root);
       startKc = XKeysymToKeycode(dpy, (KeySym)startKeyval.load());
       stopKc = XKeysymToKeycode(dpy, (KeySym)stopKeyval.load());
-      startM = startMods.load() & kModMask;
-      stopM = stopMods.load() & kModMask;
+      startM = startMods.load() & kXModMask;
+      stopM = stopMods.load() & kXModMask;
       if (startKc)
         GrabCombo(dpy, root, startKc, startM);
       if (stopKc && (stopKc != startKc || stopM != startM))
@@ -300,11 +584,10 @@ static void HotkeyLoop() {
       XEvent ev;
       XNextEvent(dpy, &ev);
       if (ev.type == KeyPress) {
-        unsigned int state = ev.xkey.state & kModMask;
+        unsigned int state = ev.xkey.state & kXModMask;
         KeyCode kc = (KeyCode)ev.xkey.keycode;
         if (kc == startKc && state == startM && kc == stopKc &&
             state == stopM) {
-          // Même combo pour les deux : bascule
           g_idle_add(isSpamming ? OnHotkeyStop : OnHotkeyStart, nullptr);
         } else if (kc == startKc && state == startM) {
           g_idle_add(OnHotkeyStart, nullptr);
@@ -351,8 +634,7 @@ static gboolean OnWindowKeyPress(GtkWidget *, GdkEventKey *ev, gpointer) {
   if (capturingHotkey == 0)
     return FALSE;
 
-  // Ignore les touches modificatrices seules
-  switch (ev->keyval) {
+  switch (ev->keyval) { // modificateurs seuls : on attend la touche finale
   case GDK_KEY_Shift_L:
   case GDK_KEY_Shift_R:
   case GDK_KEY_Control_L:
@@ -370,8 +652,7 @@ static gboolean OnWindowKeyPress(GtkWidget *, GdkEventKey *ev, gpointer) {
   capturingHotkey = 0;
 
   if (ev->keyval != GDK_KEY_Escape) {
-    guint mods = ev->state & (GDK_SHIFT_MASK | GDK_CONTROL_MASK |
-                              GDK_MOD1_MASK | GDK_SUPER_MASK);
+    guint mods = ev->state & kGdkModMask;
     if (which == 1) {
       startKeyval = ev->keyval;
       startMods = mods;
@@ -412,6 +693,11 @@ static void OnDestroy(GtkWidget *, gpointer) {
   if (hotkeyThread.joinable())
     hotkeyThread.join();
   SaveConfig();
+  if (uinputFd >= 0) {
+    ioctl(uinputFd, UI_DEV_DESTROY);
+    close(uinputFd);
+    uinputFd = -1;
+  }
   if (soundPlayer) {
     gst_element_set_state(soundPlayer, GST_STATE_NULL);
     gst_object_unref(soundPlayer);
@@ -461,6 +747,34 @@ int main(int argc, char **argv) {
   gtk_window_set_default_icon_name("pushly");
   gst_init(&argc, &argv);
 
+  // Sélection du backend : uinput sous Wayland, XTest sous X11
+  const char *forced = getenv("PUSHLY_BACKEND");
+  const char *waylandDisplay = getenv("WAYLAND_DISPLAY");
+  if (forced && strcmp(forced, "x11") == 0)
+    useUinput = false;
+  else if (forced && strcmp(forced, "uinput") == 0)
+    useUinput = true;
+  else
+    useUinput = (waylandDisplay && *waylandDisplay);
+
+  std::string backendMsg;
+  if (useUinput) {
+    uinputFd = OpenUinput();
+    if (uinputFd < 0) {
+      useUinput = false;
+      backendMsg = "<span foreground='#e0a030' size='small'>⚠ /dev/uinput "
+                   "inaccessible : repli sur X11 (les applis natives Wayland "
+                   "ne recevront pas les frappes).\nAjoutez-vous au groupe "
+                   "input : sudo usermod -aG input $USER</span>";
+    } else {
+      backendMsg = "<span foreground='#7a7a85' size='small'>Backend : uinput "
+                   "(Wayland)</span>";
+    }
+  } else {
+    backendMsg =
+        "<span foreground='#7a7a85' size='small'>Backend : X11 (XTest)</span>";
+  }
+
   resourceDir = FindResourceDir();
   soundPlayer = gst_element_factory_make("playbin", "pushly-sound");
   LoadConfig();
@@ -480,7 +794,6 @@ int main(int argc, char **argv) {
 
   int row = 0;
 
-  // Logo si disponible
   std::string logoPath = resourceDir + "/PushlyLogo.png";
   if (access(logoPath.c_str(), R_OK) == 0) {
     GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(logoPath.c_str(), 96, 96,
@@ -535,6 +848,13 @@ int main(int argc, char **argv) {
   gtk_widget_set_hexpand(scaleVolume, TRUE);
   gtk_grid_attach(GTK_GRID(grid), scaleVolume, 1, row++, 1, 1);
 
+  lblBackend = gtk_label_new(nullptr);
+  gtk_label_set_markup(GTK_LABEL(lblBackend), backendMsg.c_str());
+  gtk_label_set_line_wrap(GTK_LABEL(lblBackend), TRUE);
+  gtk_label_set_justify(GTK_LABEL(lblBackend), GTK_JUSTIFY_CENTER);
+  gtk_widget_set_halign(lblBackend, GTK_ALIGN_CENTER);
+  gtk_grid_attach(GTK_GRID(grid), lblBackend, 0, row++, 2, 1);
+
   g_signal_connect(entryKey, "changed", G_CALLBACK(OnKeyChanged), nullptr);
   g_signal_connect(spinDelay, "value-changed", G_CALLBACK(OnDelayChanged),
                    nullptr);
@@ -550,7 +870,7 @@ int main(int argc, char **argv) {
                    nullptr);
   g_signal_connect(mainWindow, "destroy", G_CALLBACK(OnDestroy), nullptr);
 
-  hotkeyThread = std::thread(HotkeyLoop);
+  hotkeyThread = std::thread(useUinput ? EvdevHotkeyLoop : X11HotkeyLoop);
 
   gtk_widget_show_all(mainWindow);
   gtk_main();

@@ -1,0 +1,10 @@
+post_install() {
+  echo "==> Pushly (Wayland) : pour l'injection de touches et les raccourcis"
+  echo "==> globaux, ajoutez votre utilisateur au groupe 'input' :"
+  echo "==>   sudo usermod -aG input \$USER"
+  echo "==> puis déconnectez-vous / reconnectez-vous."
+}
+
+post_upgrade() {
+  post_install
+}
